@@ -26,6 +26,10 @@ export interface SystemInfoResponse {
   mcp?: {
     running?: boolean;
     port?: number;
+    httpEnabled?: boolean;
+    httpsEnabled?: boolean;
+    httpPort?: number;
+    httpsPort?: number;
     connections?: number;
     vault?: string;
   };
@@ -64,7 +68,16 @@ export function formatSystemInfo(response: SystemInfoResponse): string {
     if (response.mcp) {
       lines.push(header(2, 'MCP Server'));
       lines.push(property('Running', response.mcp.running ? 'Yes' : 'No', 0));
-      if (response.mcp.port) {
+      if (response.mcp.httpPort !== undefined) {
+        const httpStatus = response.mcp.httpEnabled === false ? ' (disabled)' : '';
+        lines.push(property('HTTP Port', response.mcp.httpPort.toString() + httpStatus, 0));
+      }
+      if (response.mcp.httpsPort !== undefined) {
+        const httpsStatus = response.mcp.httpsEnabled === false ? ' (disabled)' : '';
+        lines.push(property('HTTPS Port', response.mcp.httpsPort.toString() + httpsStatus, 0));
+      }
+      // Legacy: single port field
+      if (response.mcp.port && response.mcp.httpPort === undefined) {
         lines.push(property('Port', response.mcp.port.toString(), 0));
       }
       if (response.mcp.connections !== undefined) {
@@ -286,6 +299,13 @@ export interface WebFetchResponse {
 export function formatWebFetch(response: WebFetchResponse): string {
   const lines: string[] = [];
 
+  // Extract content string — handle MCP content array format [{type:'text', text:'...'}]
+  const content: string = typeof response.content === 'string'
+    ? response.content
+    : Array.isArray(response.content)
+      ? (response.content as Array<{type: string; text: string}>)[0]?.text ?? JSON.stringify(response.content)
+      : String(response.content);
+
   const title = response.title || 'Web Content';
   lines.push(header(1, `Fetched: ${title}`));
   lines.push('');
@@ -306,12 +326,12 @@ export function formatWebFetch(response: WebFetchResponse): string {
 
   // Truncate very long content
   const maxLength = 5000;
-  if (response.content.length > maxLength) {
-    lines.push(response.content.substring(0, maxLength));
+  if (content.length > maxLength) {
+    lines.push(content.substring(0, maxLength));
     lines.push('');
-    lines.push(`... (${response.content.length - maxLength} more characters)`);
+    lines.push(`... (${content.length - maxLength} more characters)`);
   } else {
-    lines.push(response.content);
+    lines.push(content);
   }
 
   lines.push(summaryFooter());
