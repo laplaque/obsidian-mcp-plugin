@@ -41,14 +41,7 @@ Traditional file access gives AI a narrow view - one document at a time. This pl
 
 ### 2. Configure Your AI Client
 
-**Claude Code**
-```bash
-claude mcp add --transport http obsidian http://localhost:3001/mcp --header "Authorization: Bearer YOUR_API_KEY"
-```
-
-For HTTPS, point Claude Code at `https://localhost:3443/mcp` instead. Both `--transport http` and `--transport sse` work once the plugin's self-signed certificate is trusted — see [Trusting the self-signed certificate](#trusting-the-self-signed-certificate) below. **Claude Code runs on Bun and does not read the macOS system keychain**, so you will need to set `NODE_EXTRA_CA_CERTS`.
-
-**Claude Desktop, Cline, and other MCP clients**
+**Claude Code** — add to `~/.claude/settings.json` (user scope) or `.mcp.json` (project scope):
 ```json
 {
   "mcpServers": {
@@ -65,7 +58,29 @@ For HTTPS, point Claude Code at `https://localhost:3443/mcp` instead. Both `--tr
 }
 ```
 
-Copy the ready-to-use config with your API key from the plugin settings page.
+For HTTPS, use `https://localhost:3443/mcp` as the URL instead. Both `--transport http` and `--transport sse` work once the plugin's self-signed certificate is trusted — see [Trusting the self-signed certificate](#trusting-the-self-signed-certificate) below. **Claude Code runs on Bun and does not read the macOS system keychain**, so you will need to set `NODE_EXTRA_CA_CERTS`.
+
+> [!WARNING]
+> **Do not use `claude mcp add --header` to register this server.** The CLI echoes resolved header values to stdout, which exposes your API key to any parent process — including AI agents that capture tool output as context. On macOS, spawned MCP child process arguments are also logged to the unified log. Edit the config file directly instead.
+
+**Claude Desktop, Cline, and other MCP clients** — add to your client's MCP config file:
+```json
+{
+  "mcpServers": {
+    "obsidian-vault": {
+      "transport": {
+        "type": "http",
+        "url": "http://localhost:3001/mcp",
+        "headers": {
+          "Authorization": "Bearer YOUR_API_KEY"
+        }
+      }
+    }
+  }
+}
+```
+
+Copy the ready-to-use config with your API key from the plugin settings page. The same JSON format works for all MCP clients — only the config file location differs.
 
 ### Trusting the self-signed certificate
 
@@ -190,13 +205,19 @@ AI uses graph tools to:
 - Fuzzy text matching for edits
 - Structure-aware modifications (headings, blocks)
 - Batch operations (split, combine, move)
+- Inline combine preview (no file written when destination is omitted)
 - Template support
 
 ### Integration
 - Dataview query execution
 - Bases database operations
 - Web content fetching
-- Read-only mode for safety
+- Read-only mode for safety (inline combine allowed)
+
+### Session Resilience
+- Automatic recovery from stale/expired MCP sessions
+- Transparent session alias mapping for client convergence
+- Structured JSON-RPC error responses with recovery instructions
 
 ## Plugin Settings
 

@@ -132,13 +132,22 @@ Split a file into multiple files.
 ```
 
 #### `combine`
-Combine multiple files into one.
+Combine multiple files into one, or preview combined content inline.
 ```json
 {
   "action": "combine",
   "paths": ["notes/part1.md", "notes/part2.md", "notes/part3.md"],
   "destination": "notes/combined.md",
   "separator": "\n\n---\n\n",
+  "includeFilenames": true
+}
+```
+
+**Inline preview (no file written):** Omit `destination` to return the combined content directly in the response. This is useful for multi-file analysis without creating a new file, and is allowed in read-only mode.
+```json
+{
+  "action": "combine",
+  "paths": ["notes/part1.md", "notes/part2.md"],
   "includeFilenames": true
 }
 ```
