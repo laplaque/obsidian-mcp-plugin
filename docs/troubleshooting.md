@@ -19,9 +19,9 @@ AI client cannot connect to the MCP server.
 Connection works but requests are rejected with 401/403 errors.
 
 **Solutions:**
-1. **Check API key**: Ensure the key in your client config matches the one in plugin settings
-2. **Header format**: Use `Authorization: Bearer YOUR_KEY` (note the space after Bearer)
-3. **Regenerated key**: The API key regenerates on plugin updates — copy the new key from settings
+1. **Check API key**: Ensure the key in your client JSON config matches the one shown in plugin settings
+2. **Check config location**: For Claude Code, the config lives in `~/.claude/settings.json` (user scope) or `.mcp.json` (project scope). Verify the `headers.Authorization` value matches `Bearer <your key>` (note the space after Bearer)
+3. **Regenerated key**: The API key regenerates on plugin updates — copy the new key from settings and update your config file
 
 ## SSL Certificate Errors
 
@@ -87,6 +87,46 @@ MCP URL: http://<your-ip>:3001/mcp
 ```
 
 Ensure the plugin is enabled and the server is running (check the status bar in Obsidian).
+
+## Session Errors
+
+**Symptoms:**
+Requests fail with JSON-RPC error code `-32001` and message "MCP session expired or unknown".
+
+**What's happening:**
+The client is sending a session ID that the server no longer recognizes (e.g., after a plugin reload or session timeout). The plugin attempts automatic recovery:
+
+1. **Automatic healing**: The server creates a new transport and runs an internal compat-initialize. If successful, the session is transparently healed and a short-lived alias maps the old session ID to the new one (5-minute TTL).
+2. **Alias convergence**: Subsequent requests with the stale ID resolve via the alias without re-running recovery. The response includes an `Mcp-Session-Id` header with the canonical session ID — clients should adopt it.
+3. **Recovery failure**: If compat-initialize fails, the server returns a structured error:
+   ```json
+   {
+     "jsonrpc": "2.0",
+     "error": {
+       "code": -32001,
+       "message": "MCP session expired or unknown",
+       "data": {
+         "reason": "unknown_session",
+         "recoverable": true,
+         "retry": "initialize",
+         "sessionId": "<new-session-id>"
+       }
+     }
+   }
+   ```
+
+**Solutions:**
+1. **Automatic**: Most clients recover automatically — the plugin heals sessions transparently in most cases
+2. **Manual**: If the error persists, send a fresh `initialize` request to establish a new session
+3. **Check plugin**: If sessions keep expiring, verify the plugin hasn't been reloaded or restarted
+
+## System Info and Diagnostics
+
+The `system(action='info')` tool returns server health data useful for debugging:
+
+- **httpPort / httpsPort**: Active ports with enabled/disabled status
+- **serverUptime**: Seconds since server start
+- **sessionHealth**: `activeSessions`, `totalRequests`, and `activeAliases` (stale session recovery mappings)
 
 ## Still Having Issues?
 
