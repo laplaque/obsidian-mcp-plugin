@@ -1,4 +1,4 @@
-import { MCPHttpServer } from '../src/mcp-server';
+import { MCPHttpServer, MAX_RECOVERY_ATTEMPTS, RECOVERY_BACKOFF_MS } from '../src/mcp-server';
 import { App } from 'obsidian';
 
 // Mock the fs module to prevent file system operations in tests
@@ -59,4 +59,21 @@ describe('MCPHttpServer', () => {
   // is tested at the SessionManager level in session-manager.test.ts.
   // Integration tests for the full HTTP flow should be done manually
   // against a running Obsidian instance.
+
+  describe('session recovery retry constants', () => {
+    test('MAX_RECOVERY_ATTEMPTS should be 3', () => {
+      expect(MAX_RECOVERY_ATTEMPTS).toBe(3);
+    });
+
+    test('RECOVERY_BACKOFF_MS should be 500', () => {
+      expect(RECOVERY_BACKOFF_MS).toBe(500);
+    });
+
+    test('constants should be positive integers', () => {
+      expect(Number.isInteger(MAX_RECOVERY_ATTEMPTS)).toBe(true);
+      expect(Number.isInteger(RECOVERY_BACKOFF_MS)).toBe(true);
+      expect(MAX_RECOVERY_ATTEMPTS).toBeGreaterThan(0);
+      expect(RECOVERY_BACKOFF_MS).toBeGreaterThan(0);
+    });
+  });
 });
