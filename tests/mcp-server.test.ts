@@ -1,4 +1,4 @@
-import { MCPHttpServer, MAX_RECOVERY_ATTEMPTS, RECOVERY_BACKOFF_MS } from '../src/mcp-server';
+import { MCPHttpServer, MAX_RECOVERY_ATTEMPTS, RECOVERY_BACKOFF_MS, retryWithBackoff } from '../src/mcp-server';
 import { App } from 'obsidian';
 
 // Mock the fs module to prevent file system operations in tests
@@ -60,20 +60,59 @@ describe('MCPHttpServer', () => {
   // Integration tests for the full HTTP flow should be done manually
   // against a running Obsidian instance.
 
-  describe('session recovery retry constants', () => {
-    test('MAX_RECOVERY_ATTEMPTS should be 3', () => {
-      expect(MAX_RECOVERY_ATTEMPTS).toBe(3);
+  describe('retryWithBackoff', () => {
+    test('returns result on first attempt when fn succeeds immediately', async () => {
+      const fn = jest.fn().mockResolvedValue('ok');
+      const result = await retryWithBackoff(fn, {
+        maxAttempts: 3,
+        backoffMs: 10,
+        shouldRetry: (r) => r !== 'ok'
+      });
+      expect(result).toEqual({ result: 'ok', attempts: 1 });
+      expect(fn).toHaveBeenCalledTimes(1);
     });
 
-    test('RECOVERY_BACKOFF_MS should be 500', () => {
-      expect(RECOVERY_BACKOFF_MS).toBe(500);
+    test('retries and succeeds on second attempt', async () => {
+      const fn = jest.fn()
+        .mockResolvedValueOnce('fail')
+        .mockResolvedValue('ok');
+      const result = await retryWithBackoff(fn, {
+        maxAttempts: 3,
+        backoffMs: 10,
+        shouldRetry: (r) => r !== 'ok'
+      });
+      expect(result).toEqual({ result: 'ok', attempts: 2 });
+      expect(fn).toHaveBeenCalledTimes(2);
     });
 
-    test('constants should be positive integers', () => {
-      expect(Number.isInteger(MAX_RECOVERY_ATTEMPTS)).toBe(true);
-      expect(Number.isInteger(RECOVERY_BACKOFF_MS)).toBe(true);
-      expect(MAX_RECOVERY_ATTEMPTS).toBeGreaterThan(0);
-      expect(RECOVERY_BACKOFF_MS).toBeGreaterThan(0);
+    test('returns null after exhausting all attempts', async () => {
+      const fn = jest.fn().mockResolvedValue('fail');
+      const result = await retryWithBackoff(fn, {
+        maxAttempts: MAX_RECOVERY_ATTEMPTS,
+        backoffMs: 10,
+        shouldRetry: (r) => r === 'fail'
+      });
+      expect(result).toBeNull();
+      expect(fn).toHaveBeenCalledTimes(MAX_RECOVERY_ATTEMPTS);
+    });
+
+    test('applies linear backoff between attempts', async () => {
+      const timestamps: number[] = [];
+      const fn = jest.fn().mockImplementation(async () => {
+        timestamps.push(Date.now());
+        return timestamps.length < 3 ? 'fail' : 'ok';
+      });
+      await retryWithBackoff(fn, {
+        maxAttempts: 3,
+        backoffMs: RECOVERY_BACKOFF_MS,
+        shouldRetry: (r) => r !== 'ok'
+      });
+      // Second attempt should have ~500ms delay, third ~1000ms
+      const gap1 = timestamps[1] - timestamps[0];
+      const gap2 = timestamps[2] - timestamps[1];
+      expect(gap1).toBeGreaterThanOrEqual(400);  // 500ms with some tolerance
+      expect(gap2).toBeGreaterThanOrEqual(900);  // 1000ms with some tolerance
+      expect(gap2).toBeGreaterThan(gap1);         // linear increase
     });
   });
 });

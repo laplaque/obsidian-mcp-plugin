@@ -26,6 +26,26 @@ export const MAX_RECOVERY_ATTEMPTS = 3;
 /** Base delay between recovery attempts in milliseconds (multiplied by attempt number) */
 export const RECOVERY_BACKOFF_MS = 500;
 
+/**
+ * Retry an async operation with linear backoff.
+ * Returns `{ result, attempts }` on success, or `null` if all attempts fail.
+ */
+export async function retryWithBackoff<T>(
+  fn: () => Promise<T>,
+  opts: { maxAttempts: number; backoffMs: number; shouldRetry: (result: T) => boolean }
+): Promise<{ result: T; attempts: number } | null> {
+  for (let attempt = 0; attempt < opts.maxAttempts; attempt++) {
+    if (attempt > 0) {
+      await new Promise(resolve => setTimeout(resolve, attempt * opts.backoffMs));
+    }
+    const result = await fn();
+    if (!opts.shouldRetry(result)) {
+      return { result, attempts: attempt + 1 };
+    }
+  }
+  return null;
+}
+
 /** Minimal plugin interface for MCPHttpServer.
  * Includes fields from SecurePluginRef and ObsidianAPIPluginRef so the same object
  * can be passed through the constructor chain. */
@@ -534,45 +554,46 @@ export class MCPHttpServer {
       // so the SDK's transport transitions to _initialized=true.
       if (requireInitializeNotice && transport && !isInitializeRequest(request)) {
         const versionsToTry = ['2025-06-18', '2024-11-05', '1.0'];
-        let initOk = false;
 
-        for (let attempt = 0; attempt < MAX_RECOVERY_ATTEMPTS && !initOk; attempt++) {
-          // Backoff between retry attempts (skip delay on first attempt)
-          if (attempt > 0) {
-            const delayMs = attempt * RECOVERY_BACKOFF_MS;
-            Debug.log(`♻️ Session recovery attempt ${attempt + 1}/${MAX_RECOVERY_ATTEMPTS} after ${delayMs}ms backoff (session=${effectiveSessionId})`);
-            await new Promise(resolve => setTimeout(resolve, delayMs));
-          }
-
-          for (const ver of versionsToTry) {
-            try {
-              const initBody = {
-                jsonrpc: '2.0',
-                id: '__compat_init__',
-                method: 'initialize',
-                params: {
-                  protocolVersion: ver,
-                  capabilities: {},
-                  clientInfo: { name: 'obsidian-mcp-compat', version: getVersion() }
+        // Worst case: MAX_RECOVERY_ATTEMPTS × versionsToTry.length init requests (~1500ms)
+        const retryResult = await retryWithBackoff(
+          async () => {
+            for (const ver of versionsToTry) {
+              try {
+                const initBody = {
+                  jsonrpc: '2.0',
+                  id: '__compat_init__',
+                  method: 'initialize',
+                  params: {
+                    protocolVersion: ver,
+                    capabilities: {},
+                    clientInfo: { name: 'obsidian-mcp-compat', version: getVersion() }
+                  }
+                };
+                const { req: initReq, res: initRes } = this.createCompatInitPair(effectiveSessionId, initBody);
+                await transport.handleRequest(initReq, initRes, initBody);
+                if (initRes.statusCode >= 200 && initRes.statusCode < 300) {
+                  return { ok: true, ver };
+                } else {
+                  Debug.log(`⚠️ Compat initialize returned status ${initRes.statusCode} (protocolVersion=${ver})`);
                 }
-              };
-              const { req: initReq, res: initRes } = this.createCompatInitPair(effectiveSessionId, initBody);
-              await transport.handleRequest(initReq, initRes, initBody);
-              // Verify the init actually succeeded by checking response status
-              if (initRes.statusCode >= 200 && initRes.statusCode < 300) {
-                initOk = true;
-                Debug.log(`♻️ Session healed: compat initialize succeeded (protocolVersion=${ver}, session=${effectiveSessionId}, attempt=${attempt + 1})`);
-                break;
-              } else {
-                Debug.log(`⚠️ Compat initialize returned status ${initRes.statusCode} (protocolVersion=${ver}, attempt=${attempt + 1})`);
+              } catch (e) {
+                Debug.error(`⚠️ Compat initialize attempt failed (protocolVersion=${ver}):`, e);
               }
-            } catch (e) {
-              Debug.error(`⚠️ Compat initialize attempt failed (protocolVersion=${ver}, attempt=${attempt + 1}):`, e);
             }
+            return { ok: false, ver: '' };
+          },
+          {
+            maxAttempts: MAX_RECOVERY_ATTEMPTS,
+            backoffMs: RECOVERY_BACKOFF_MS,
+            shouldRetry: (result) => !result.ok
           }
-        }
+        );
 
+        const initOk = retryResult !== null;
         if (initOk) {
+          Debug.log(`♻️ Session healed: compat initialize succeeded (protocolVersion=${retryResult.result.ver}, session=${effectiveSessionId}, attempt=${retryResult.attempts})`);
+
           requireInitializeNotice = false;
           // Create alias so subsequent requests with the original stale ID
           // resolve directly without re-running compat init
