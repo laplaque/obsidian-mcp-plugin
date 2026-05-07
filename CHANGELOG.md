@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **Session Recovery Retry**: Compat-initialize session healing now retries up to 3 times with linear backoff (500ms × attempt) before returning `-32001`. Clients that cache `Mcp-Session-Id` across plugin restarts now survive brief transient failures (plugin loading, vault syncing) without manual reconnection.
+
 ### Security
 - 🔴 CRITICAL: Identified authentication vulnerability - no API key validation ([#9](https://github.com/aaronsb/obsidian-mcp-plugin/issues/9))
 - 🔴 CRITICAL: Identified path traversal vulnerability in file operations ([#10](https://github.com/aaronsb/obsidian-mcp-plugin/issues/10))
