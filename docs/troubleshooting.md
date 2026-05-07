@@ -94,11 +94,11 @@ Ensure the plugin is enabled and the server is running (check the status bar in 
 Requests fail with JSON-RPC error code `-32001` and message "MCP session expired or unknown".
 
 **What's happening:**
-The client is sending a session ID that the server no longer recognizes (e.g., after a plugin reload or session timeout). The plugin attempts automatic recovery:
+The client is sending a session ID that the server no longer recognizes (e.g., after a plugin reload or session timeout). The plugin attempts automatic recovery with retry:
 
-1. **Automatic healing**: The server creates a new transport and runs an internal compat-initialize. If successful, the session is transparently healed and a short-lived alias maps the old session ID to the new one (5-minute TTL).
-2. **Alias convergence**: Subsequent requests with the stale ID resolve via the alias without re-running recovery. The response includes an `Mcp-Session-Id` header with the canonical session ID — clients should adopt it.
-3. **Recovery failure**: If compat-initialize fails, the server returns a structured error:
+1. **Automatic healing with retry**: The server creates a new transport and runs an internal compat-initialize, trying up to 3 protocol versions. If the server is transiently unavailable (e.g., plugin still loading, vault syncing), this cycle retries up to 3 times with linear backoff (0ms, 500ms, 1000ms) before giving up. Worst case: 9 init requests over ~1.5 seconds.
+2. **Alias convergence**: On success, a short-lived alias maps the old session ID to the new one (5-minute TTL). Subsequent requests with the stale ID resolve via the alias without re-running recovery. The response includes an `Mcp-Session-Id` header with the canonical session ID — clients should adopt it.
+3. **Recovery failure**: If all retry attempts are exhausted, the server returns a structured error:
    ```json
    {
      "jsonrpc": "2.0",
